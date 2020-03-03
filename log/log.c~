@@ -1,0 +1,42 @@
+
+static key_t key1;
+
+
+int msgid;
+int msgid1;
+
+void msq_init(void)
+{
+    struct msqid_ds tmpbuf;
+    key1 = ftok("aa", 'b');
+    //key2 = ftok("qq", 'c');
+    msgid = msgget(key1, 0);
+    MSG_t msg;
+    time_t tm;
+    
+    if (msgid == -1)
+    {
+        msgid = msgget(key1, 0644 | IPC_CREAT);
+        
+        if (msgid == -1)
+        {
+            perror("msggest fail");
+            exit(-1);
+        }
+    }
+    else
+    {
+        int i = msgctl(msgid, IPC_RMID, &tmpbuf);
+        printf("success msgctl     %d\n", i);
+        msgid = msgget(key1, 0644 | IPC_CREAT);
+        
+        if (msgid == -1)
+        {
+            perror("msggest fail");
+            exit(-1);
+        }
+    }
+    
+    //msgid1 = msgget(key2, 0666 | IPC_CREAT);
+    printf("msgid = %d msgid1 = %d\n", msgid, msgid1);
+}
