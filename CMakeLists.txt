@@ -71,6 +71,7 @@ add_subdirectory(log)
 #add_subdirectory(log)
 
 link_libraries(math log)
+link_libraries(pthread)
 
 # 指定生成目标
 add_executable(test ${DIR_SRCS})
