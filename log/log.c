@@ -22,6 +22,27 @@ static int num = 1;
 static key_t key1;
 
 static int msgid;
+
+typedef struct
+{
+    long mtype;
+    union {
+        struct {
+            unsigned int len; // include len num tv ...
+            unsigned int num;
+            unsigned int a;
+            struct timeval tv;
+            char dat[2000];
+        }/*__attribute__((packed))*/ st;
+        char mtext[4096];
+    }mtext;
+    /* unsigned int num; */
+    /* //time_t tm; */
+    /* struct timeval tv; */
+    /* char dat[4096]; */
+} /*__attribute__((packed)) */msg_t;
+#define DAT_LEN (msg->mtext.st.len - ((unsigned long)(&msg->mtext.st.dat[0])-(unsigned long)(msg)))
+
 typedef enum {
     MTYPE_invalid = 0,
     MTYPE_1,
@@ -33,35 +54,76 @@ typedef enum {
 typedef struct {
     msg_type_t mtype;
     char *type_str;
-    void (*p)(void *);
+    void (*p)(const void *param,int index, char *type_str);
 }msg_proc_tbl_t;
 
-typedef struct
-{
-    long mtype;
-    unsigned int num;
-    //time_t tm;
-    struct timeval mtime;
-    char dat[2048];
-} msg_t;
+
+
+
+
 
 static void write_file(char *str, unsigned int len)
 {
     pthread_mutex_lock(&mutex_lock1);
             
-    if (fp1 != NULL)
-        fwrite(str, len, 1, fp1);
+    if (fp1 != NULL) {
+        int ret;
+        ret = fwrite(str,len, 10, fp1);
+        printf("wrlen:%d, len:%d, strlen:%d, %s\n",ret,len,strlen(str),str);
+        //printf("====================\n");
+    }
                 
     pthread_mutex_unlock(&mutex_lock1);
 } 
-static void log_save_test(void *param)
+static void log_save_test(const void *param, int index, char *type_str)
 {
 
 }
-static void log_save_restart(void *param)
+
+static int format_time(const struct timeval *tv, char *str, unsigned str_size)
 {
+    return -1;
+}
+static void log_save_restart(const void *param, int index, char *type_str)
+{
+#if 1
+    const msg_t *msg = (const msg_t *)param;
+    int r;
+    struct timeval tv;
+    char str[sizeof(msg_t) * 3 + 100];
+    char str1[100];
+    unsigned int datlen;
+    if (type_str)
+        sprintf(str, "num:%05d, type:%s, ",msg->mtext.st.num,type_str);
+    else
+        sprintf(str, "num:%05d, type:%s, ",msg->mtext.st.num,"NULL");
 
     
+    r = format_time(&msg->mtext.st.tv,str1,sizeof(str1));
+
+    strcat(str,"rcv_time:");
+    if (r==0) {
+        
+        strcat(str,str1);
+    }
+    strcat(str,", ");
+
+    strcat(str,"save_time:");
+    gettimeofday(&tv,NULL);
+    r = format_time(&tv,str1,sizeof(str1));
+    if (r==0) {
+        strcat(str,str1);
+    }
+    strcat(str,", ");
+
+    datlen = DAT_LEN;
+    sprintf(str1,"len:%d, ",datlen);
+    strcat(str,str1);
+
+    str[strlen(str)+datlen] = 0;
+    memcpy(&str[strlen(str)],&msg->mtext.st.dat[0],datlen);
+    //write_file(str, strlen(str));
+#endif
 
 }
 
@@ -144,6 +206,23 @@ void *make_file_thread(void *param)
         {
             if (fp1 != NULL)
             {
+                {
+                    msg_t msg;
+                    msg.mtype = MTYPE_restart;
+                    {
+                        struct timeval tv;
+                        struct timezone tz;
+                        gettimeofday(&tv,&tz);
+                        msg.mtext.st.tv = tv;
+                    }
+                    
+                    msg.mtext.st.num  = num++;
+                        
+                    sprintf(msg.mtext.st.dat, "%s\n", "---------check file size-----");
+                    msg.mtext.st.len = sizeof(msg.mtext.st)-1 + strlen(msg.mtext.st.dat)+1;
+                    msgsnd(msgid, &msg, msg.mtext.st.len, 0);
+                }
+
                 i = ftell(fp1);
                 
                 //printf("*************************  %ld\n",i);
@@ -155,6 +234,8 @@ void *make_file_thread(void *param)
                     flag1 = 0;
                     i = 0;
                 }
+
+
             }
             
             if (fp1 == NULL)
@@ -174,8 +255,7 @@ void *make_file_thread(void *param)
 /*                         file_num, tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday, tm_now->tm_hour, tm_now->tm_min, tm_now->tm_sec); */
                 printf("name :%s\n", file);
                 
-                do
-                {
+                do{
                     fp1 = fopen(file, "a+");
                     
                     if (NULL == fp1)
@@ -188,8 +268,7 @@ void *make_file_thread(void *param)
                     {
                         flag1 = 1;
                     }
-                }
-                while (NULL == fp1);
+                } while (NULL == fp1);
                 {
                     static int restart_f = 1;
                     if (restart_f == 1)
@@ -197,11 +276,20 @@ void *make_file_thread(void *param)
                         msg_t msg;
                         time(&tm);
                         msg.mtype = MTYPE_restart;
+                        {
+                            struct timeval tv;
+                            struct timezone tz;
+                            gettimeofday(&tv,&tz);
+                            msg.mtext.st.tv = tv;
+                        }
                     
-                        msg.num = num++;
-                        memset(msg.dat, 0, sizeof(msg.dat));
-                        sprintf(msg.dat, "%s\n", "###########start success##########");
-                        msgsnd(msgid, &msg, sizeof(msg) + strlen(msg.dat) - sizeof(msg.mtype) - sizeof(msg.dat) + 1, 0);
+                        msg.mtext.st.num  = num++;
+                        //memset(msg.dat, 0, sizeof(msg.dat));
+                        
+                        sprintf(msg.mtext.st.dat, "%s\n", "###########start success##########");
+                        msg.mtext.st.len = sizeof(msg.mtext.st)-1 + strlen(msg.mtext.st.dat)+1;
+
+                        msgsnd(msgid, &msg, msg.mtext.st.len, 0);
                         restart_f  = 0;
                     }
                 }
@@ -221,7 +309,7 @@ static void *log_save_proc(void *param)
     {
         ssize_t ret;
         msg_t msg;
-        ret = msgrcv(msgid, &msg, sizeof(msg) - sizeof(long), 0, 0);
+        ret = msgrcv(msgid, &msg, sizeof(msg) - sizeof(msg.mtype), 0, 0);
         
         if (-1 == ret)
         {
@@ -229,16 +317,20 @@ static void *log_save_proc(void *param)
             exit(-1);
         }
         
-        if (ret < sizeof(msg_t)-sizeof(msg.dat))
+        if (ret < sizeof(msg.mtext.st)-1)
             continue;
         if (msg.mtype <=0)
             continue;
+        printf("rcv ret[%d], len[%d]\n", ret,msg.mtext.st.len);
+
+        msg.mtext.st.len = ret;
+
         {
             int i = 0;
             while(i < sizeof(msg_proc_tbl)/sizeof(msg_proc_tbl_t)) {
                 if (msg_proc_tbl[i].mtype == msg.mtype) {
                     if (msg_proc_tbl[i].p) {
-                        msg_proc_tbl[i].p((void *)&msg);
+                        msg_proc_tbl[i].p((void *)&msg,i,msg_proc_tbl[i].type_str);
                     }
                     break;
                 }
@@ -288,7 +380,14 @@ static void thread_init(void)
 }
 void log_init(void)
 {
+    msg_t msg;
+
+    printf("sizeof(msg_t) = %d,sizeof(msg.mtext.st)=%d,sizeof(long)=%d, sizeof(timeval)=%d,sizeof(int)=%d\n\n",sizeof(msg_t),sizeof(msg.mtext.st),sizeof(long),sizeof(struct timeval),sizeof(int));
+    printf("add diff = %lu\n",(unsigned long)(&msg.mtext.st.dat[0])-(unsigned long)(&msg));
+
     msg_q_create();
     thread_init();
+
+    
     
 }
