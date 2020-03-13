@@ -14,8 +14,10 @@ int main(int argc, char **argv)
     c = add(a,b);
     printf("sum is %d, diff is %d\n",c,dec(a,b));
     while(1) {
+sleep(5);
         sync();
-        sleep(5);
+        
+        printf("sync\n");
     }
 
     return 0;

@@ -15,7 +15,7 @@
 static FILE *fp1 = NULL;
 static pthread_mutex_t mutex_lock1 = PTHREAD_MUTEX_INITIALIZER;
 static int time_set_ok = 1;
-#define MAX_LOG_FILE_SIZE 10240
+#define MAX_LOG_FILE_SIZE 100
 static int flag1;
 static int num = 1;
 
@@ -30,18 +30,18 @@ typedef struct
         struct {
             unsigned int len; // include len num tv ...
             unsigned int num;
-            unsigned int a;
+            //unsigned char a;
             struct timeval tv;
-            char dat[2000];
-        }/*__attribute__((packed))*/ st;
+            char dat[1];
+        }/*__attribute__((packed))*/st;
         char mtext[4096];
     }mtext;
     /* unsigned int num; */
     /* //time_t tm; */
     /* struct timeval tv; */
     /* char dat[4096]; */
-} /*__attribute__((packed)) */msg_t;
-#define DAT_LEN (msg->mtext.st.len - ((unsigned long)(&msg->mtext.st.dat[0])-(unsigned long)(msg)))
+}/*__attribute__((packed))*/msg_t;
+#define DAT_LEN (msg->mtext.st.len - ((unsigned long)(&msg->mtext.st.dat[0])-(unsigned long)(&msg->mtext)))
 
 typedef enum {
     MTYPE_invalid = 0,
@@ -58,21 +58,173 @@ typedef struct {
 }msg_proc_tbl_t;
 
 
+int init_file(void)
+{
+    int file_num = 0;
+    DIR *dirp;
+    time_t tm;
+    char file[100];
+    struct dirent *dp;
+    struct tm *tm_now,tmnow;
+    time(&tm);
+    localtime_r(&tm,&tmnow);
+    tm_now = &tmnow;
+    sprintf(file, "%s/%04d-%02d-%02d", LOG_path,tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday);
+    
+    if (access(LOG_path, 0) == -1)
+    {
+        if (mkdir(LOG_path, 0777))
+        {
+            perror("mkdir fail Error 1");
+            return -1;
+        }
+    }
+    
+    if (access(file, 0) == -1)
+    {
+        if (mkdir(file, 0777))
+        {
+            perror("mkdir fail Error 2");
+            return -1;
+        }
+    }
+    
+    dirp = opendir(file);
+    
+    if (NULL == dirp)
+    {
+        // if(mkdir("/sddisk/Log_txt",0777))
+        {
+            perror("mkdir fail");
+            return -1;
+        }
+    }
+    
+    while ((dp = readdir(dirp))!=NULL)
+    {
+        if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0)
+            continue;
+        else
+            file_num = file_num + 1;
+    }
+    
+    return file_num;
+}
 
+static int make_filename(char *filename, unsigned int sz, int inc_f)
+{
+    int n;
+    struct tm *tm_now, tmnow;
+    time_t tm;
+        
+    n = init_file();
+    if (n < 0){
+        memset(filename,0,sz);
+        printf("filename err!\n");
+        return -1;
+    }
+    else{
+        if (inc_f){
+            n++;
+        }
+        time(&tm);
+        localtime_r(&tm,&tmnow);
+        tm_now = &tmnow;
+        sprintf(filename, "%s/%04d-%02d-%02d/%05d_%04d-%02d-%02d_%02d_%02d_%02d.txt", 
+                LOG_path, tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday,
+                n,tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday, 
+                tm_now->tm_hour, tm_now->tm_min, tm_now->tm_sec);
+    }
+    return 0;
 
-
+}
 
 static void write_file(char *str, unsigned int len)
 {
+    static int first = 1;
+    static char filename[256]={0};
+    static int changefile_f = 0;
+    static int wr_cnt = 0;
     pthread_mutex_lock(&mutex_lock1);
-            
-    if (fp1 != NULL) {
-        int ret;
-        ret = fwrite(str,len, 10, fp1);
-        printf("wrlen:%d, len:%d, strlen:%d, %s\n",ret,len,strlen(str),str);
-        //printf("====================\n");
+// make filename
+    if (first) {
+        if (make_filename(filename,sizeof(filename),1) == 0) {
+            first = 0;
+        }
     }
-                
+
+    if (changefile_f){
+        if (make_filename(filename,sizeof(filename),1) == 0) {
+            changefile_f = 0;
+        }
+    }
+
+// open file
+    if (fp1 == NULL)
+    {
+        int cnt;
+        if (strlen(filename)>0){
+            cnt = 0;
+            do{
+                fp1 = fopen(filename, "a+");
+                    
+                if (NULL == fp1)
+                {
+                    cnt++;
+                    printf("\n  fopen fail,try cnt = %d\n",cnt);
+                }
+            } while ((NULL == fp1) &&(cnt<3));
+            if (fp1) {
+                printf("openfile: %s\n", filename);
+            }
+        }
+        else {
+            if (make_filename(filename,sizeof(filename),1) == 0) {
+                cnt = 0;
+                do{
+                    fp1 = fopen(filename, "a+");
+                    
+                    if (NULL == fp1)
+                    {
+                        cnt++;
+                        printf("\n  fopen fail,try cnt = %d\n",cnt);
+                    }
+                } while ((NULL == fp1) &&(cnt<3));
+                if (fp1) {
+                    printf("openfile: %s\n", filename);
+                }
+            }
+        }
+    }
+// write log
+    if (fp1 != NULL) {
+
+        int ret;
+        //ret = fwrite(str,len, 1, fp1);
+        ret = fprintf(fp1,"%s",str);
+        printf("wrlen:%d, len:%u, strlen:%lu, %s\n",ret,len,strlen(str),str);
+        //printf("====================\n");
+        wr_cnt++;
+    }
+
+// check filesize
+    if (fp1 != NULL) {
+        long fsz = ftell(fp1);
+        if (fsz >= MAX_LOG_FILE_SIZE)
+        {
+            fclose(fp1);
+            fp1 = NULL;
+            changefile_f = 1;
+        }
+    }
+
+// wr_cnt check
+    if (wr_cnt >= 1) {
+        wr_cnt = 0;
+        fclose(fp1);
+        fp1 = NULL;
+    }
+    
     pthread_mutex_unlock(&mutex_lock1);
 } 
 static void log_save_test(const void *param, int index, char *type_str)
@@ -122,7 +274,7 @@ static void log_save_restart(const void *param, int index, char *type_str)
 
     str[strlen(str)+datlen] = 0;
     memcpy(&str[strlen(str)],&msg->mtext.st.dat[0],datlen);
-    //write_file(str, strlen(str));
+    write_file(str, strlen(str));
 #endif
 
 }
@@ -137,57 +289,7 @@ msg_proc_tbl_t msg_proc_tbl[] = {
 
 
 
-int init_file(void)
-{
-    int file_num = 0;
-    DIR *dirp;
-    time_t tm;
-    char file[100];
-    struct dirent *dp;
-    struct tm *tm_now;
-    time(&tm);
-    tm_now = localtime(&tm);
-    sprintf(file, "%s/%04d-%02d-%02d", LOG_path,tm_now->tm_year + 1900, tm_now->tm_mon + 1, tm_now->tm_mday);
-    
-    if (access(LOG_path, 0) == -1)
-    {
-        if (mkdir(LOG_path, 0777))
-        {
-            perror("mkdir fail Error 1");
-            return -1;
-        }
-    }
-    
-    if (access(file, 0) == -1)
-    {
-        if (mkdir(file, 0777))
-        {
-            perror("mkdir fail Error 2");
-            return -1;
-        }
-    }
-    
-    dirp = opendir(file);
-    
-    if (NULL == dirp)
-    {
-        // if(mkdir("/sddisk/Log_txt",0777))
-        {
-            perror("mkdir fail");
-            return -1;
-        }
-    }
-    
-    while ((dp = readdir(dirp))!=NULL)
-    {
-        if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0)
-            continue;
-        else
-            file_num = file_num + 1;
-    }
-    
-    return file_num;
-}
+
 
 
 void *make_file_thread(void *param)
@@ -206,22 +308,7 @@ void *make_file_thread(void *param)
         {
             if (fp1 != NULL)
             {
-                {
-                    msg_t msg;
-                    msg.mtype = MTYPE_restart;
-                    {
-                        struct timeval tv;
-                        struct timezone tz;
-                        gettimeofday(&tv,&tz);
-                        msg.mtext.st.tv = tv;
-                    }
-                    
-                    msg.mtext.st.num  = num++;
-                        
-                    sprintf(msg.mtext.st.dat, "%s\n", "---------check file size-----");
-                    msg.mtext.st.len = sizeof(msg.mtext.st)-1 + strlen(msg.mtext.st.dat)+1;
-                    msgsnd(msgid, &msg, msg.mtext.st.len, 0);
-                }
+                
 
                 i = ftell(fp1);
                 
@@ -293,17 +380,39 @@ void *make_file_thread(void *param)
                         restart_f  = 0;
                     }
                 }
+                
             }
         }
         
         pthread_mutex_unlock(&mutex_lock1);
+{
+                    msg_t msg;
+                    msg.mtype = MTYPE_restart;
+                    {
+                        struct timeval tv;
+                        struct timezone tz;
+                        gettimeofday(&tv,&tz);
+                        msg.mtext.st.tv = tv;
+                    }
+                    
+                    msg.mtext.st.num  = num++;
+                        
+                    sprintf(msg.mtext.st.dat, "%s\n", "---------check file size-----");
+                    msg.mtext.st.len = sizeof(msg.mtext.st)-1 + strlen(msg.mtext.st.dat)+1;
+                    msgsnd(msgid, &msg, msg.mtext.st.len, 0);
+
+                    write_file(msg.mtext.st.dat, strlen(msg.mtext.st.dat)+1);
+write_file(msg.mtext.st.dat, strlen(msg.mtext.st.dat));
+write_file(msg.mtext.st.dat, strlen(msg.mtext.st.dat));
+
+                }
         sleep(1);
     }
 }
 
 static void *log_save_proc(void *param)
 {
-    msg_t msg;
+    // msg_t msg;
 
     while (1)
     {
@@ -321,7 +430,7 @@ static void *log_save_proc(void *param)
             continue;
         if (msg.mtype <=0)
             continue;
-        printf("rcv ret[%d], len[%d]\n", ret,msg.mtext.st.len);
+        printf("rcv ret[%ld], len[%d]\n", ret,msg.mtext.st.len);
 
         msg.mtext.st.len = ret;
 
@@ -372,10 +481,59 @@ static void msg_q_create(void)
     printf("file[%s],function[%s] ok! msgid = %d\n", __FILE__,__FUNCTION__,msgid);
 }
 
+void send_log_msg(msg_type_t mtype, char *dat, unsigned int datlen)
+{
+    msg_t msg;
+    msg.mtype = mtype;
+    {
+        struct timeval tv;
+        struct timezone tz;
+        gettimeofday(&tv,&tz);
+        msg.mtext.st.tv = tv;
+    }
+    msg.mtext.st.num  = num++;
+    
+    {
+        int offset = ((unsigned long)(&msg.mtext.st.dat[0])-(unsigned long)(&msg.mtext));
+        int msize=sizeof(msg.mtext)-offset;
+
+        if (datlen>msize) {
+            datlen=msize;
+        }
+        memcpy(msg.mtext.st.dat,dat,datlen);
+        msg.mtext.st.len = datlen+offset;
+        msgsnd(msgid, &msg, msg.mtext.st.len, 0);
+    }
+    
+}
+
+static void *test_proc(void *p)
+{
+    int f = 1;
+    while (1) {
+        usleep(5000);
+        if (f) {
+            f= 0;
+            send_log_msg(MTYPE_restart,"+++restart+++\n",strlen("+++restart+++\n"));
+        }
+        {
+            static int cnt= 0;
+
+            char str[100];
+            sprintf(str,"cnt=%05d\n",cnt++);
+
+            send_log_msg(MTYPE_restart,str,strlen(str));
+            
+        }
+    }
+}
+
 static void thread_init(void)
 {
     pthread_t tid,tid1;
-    pthread_create(&tid1,NULL,make_file_thread,NULL);
+    //pthread_create(&tid1,NULL,make_file_thread,NULL);
+    pthread_create(&tid1,NULL,test_proc,NULL);
+    
     pthread_create(&tid,NULL,log_save_proc,NULL);
 }
 void log_init(void)
@@ -384,6 +542,7 @@ void log_init(void)
 
     printf("sizeof(msg_t) = %d,sizeof(msg.mtext.st)=%d,sizeof(long)=%d, sizeof(timeval)=%d,sizeof(int)=%d\n\n",sizeof(msg_t),sizeof(msg.mtext.st),sizeof(long),sizeof(struct timeval),sizeof(int));
     printf("add diff = %lu\n",(unsigned long)(&msg.mtext.st.dat[0])-(unsigned long)(&msg));
+    printf("add_dat[%08x],add_msg[%08x],add_st[%08x]\n",(unsigned long)(&msg.mtext.st.dat[0]),(unsigned long)(&msg),(unsigned long)(&msg.mtext.st));
 
     msg_q_create();
     thread_init();
