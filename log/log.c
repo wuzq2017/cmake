@@ -15,7 +15,7 @@
 static FILE *fp1 = NULL;
 static pthread_mutex_t mutex_lock1 = PTHREAD_MUTEX_INITIALIZER;
 static int time_set_ok = 1;
-#define MAX_LOG_FILE_SIZE 100
+#define MAX_LOG_FILE_SIZE 10240
 static int flag1;
 static int num = 1;
 
@@ -156,6 +156,7 @@ static void write_file(char *str, unsigned int len)
     if (changefile_f){
         if (make_filename(filename,sizeof(filename),1) == 0) {
             changefile_f = 0;
+            printf("change file: %s\n",filename);
         }
     }
 
@@ -175,11 +176,11 @@ static void write_file(char *str, unsigned int len)
                 }
             } while ((NULL == fp1) &&(cnt<3));
             if (fp1) {
-                printf("openfile: %s\n", filename);
+                //printf("openfile: %s\n", filename);
             }
         }
         else {
-            if (make_filename(filename,sizeof(filename),1) == 0) {
+            if (make_filename(filename,sizeof(filename),0) == 0) {
                 cnt = 0;
                 do{
                     fp1 = fopen(filename, "a+");
@@ -191,10 +192,12 @@ static void write_file(char *str, unsigned int len)
                     }
                 } while ((NULL == fp1) &&(cnt<3));
                 if (fp1) {
-                    printf("openfile: %s\n", filename);
+                    printf("openfile1: %s\n", filename);
                 }
             }
         }
+        //fseek(fp1, 0L, SEEK_END);
+        //printf("ftell: %d\n",ftell(fp1));
     }
 // write log
     if (fp1 != NULL) {
@@ -202,14 +205,24 @@ static void write_file(char *str, unsigned int len)
         int ret;
         //ret = fwrite(str,len, 1, fp1);
         ret = fprintf(fp1,"%s",str);
-        printf("wrlen:%d, len:%u, strlen:%lu, %s\n",ret,len,strlen(str),str);
+        //printf("wrlen:%d, len:%u, strlen:%lu, %s\n",ret,len,strlen(str),str);
         //printf("====================\n");
         wr_cnt++;
+// wr_cnt check
+        if (wr_cnt >= 10) {
+            wr_cnt = 0;
+            fclose(fp1);
+            fp1 = NULL;
+        }
     }
 
 // check filesize
     if (fp1 != NULL) {
-        long fsz = ftell(fp1);
+        long fsz;
+        fseek(fp1, 0L, SEEK_END);
+        fsz = ftell(fp1);
+        //printf("fsize=%d bytes\n",fsz);
+        
         if (fsz >= MAX_LOG_FILE_SIZE)
         {
             fclose(fp1);
@@ -218,13 +231,6 @@ static void write_file(char *str, unsigned int len)
         }
     }
 
-// wr_cnt check
-    if (wr_cnt >= 1) {
-        wr_cnt = 0;
-        fclose(fp1);
-        fp1 = NULL;
-    }
-    
     pthread_mutex_unlock(&mutex_lock1);
 } 
 static void log_save_test(const void *param, int index, char *type_str)
@@ -234,6 +240,8 @@ static void log_save_test(const void *param, int index, char *type_str)
 
 static int format_time(const struct timeval *tv, char *str, unsigned str_size)
 {
+    char tm_str[256];
+
     return -1;
 }
 static void log_save_restart(const void *param, int index, char *type_str)
@@ -430,7 +438,10 @@ static void *log_save_proc(void *param)
             continue;
         if (msg.mtype <=0)
             continue;
-        printf("rcv ret[%ld], len[%d]\n", ret,msg.mtext.st.len);
+        
+        if (ret != msg.mtext.st.len) {
+            printf("rcv ret[%ld], len[%d]\n", ret,msg.mtext.st.len);
+        }
 
         msg.mtext.st.len = ret;
 
