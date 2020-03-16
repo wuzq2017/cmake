@@ -241,8 +241,14 @@ static void log_save_test(const void *param, int index, char *type_str)
 static int format_time(const struct timeval *tv, char *str, unsigned str_size)
 {
     char tm_str[256];
-
-    return -1;
+    struct tm tm;
+    
+    localtime_r(&tv->tv_sec, &tm);
+    
+    sprintf(tm_str,"%04d-%02d-%02d %02d:%02d:%02d.%03dms",tm.tm_year+1900,tm.tm_mon+1,tm.tm_mday,tm.tm_hour,tm.tm_min,tm.tm_sec,tv->tv_usec/1000);
+    if(strlen(tm_str) < str_size)
+      sprintf(str,tm_str);
+    return 0;
 }
 static void log_save_restart(const void *param, int index, char *type_str)
 {
@@ -522,7 +528,7 @@ static void *test_proc(void *p)
 {
     int f = 1;
     while (1) {
-        usleep(5000);
+        usleep(10000);
         if (f) {
             f= 0;
             send_log_msg(MTYPE_restart,"+++restart+++\n",strlen("+++restart+++\n"));
