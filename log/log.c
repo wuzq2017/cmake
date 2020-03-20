@@ -16,7 +16,7 @@
 static FILE *fp1 = NULL;
 static pthread_mutex_t mutex_lock1 = PTHREAD_MUTEX_INITIALIZER;
 static int time_set_ok = 1;
-#define MAX_LOG_FILE_SIZE (102400/2)
+#define MAX_LOG_FILE_SIZE (1024000)
 static int flag1;
 static int num = 1;
 
@@ -172,30 +172,37 @@ static void write_file(char *str, unsigned int len)
                     
                 if (NULL == fp1)
                 {
+                    char *err[64];
                     cnt++;
-                    printf("\n  fopen fail,try cnt = %d\n",cnt);
-                    exit(1);
+                    sprintf(err,"1 fopen fail,try cnt = %d",cnt);
+                    perror(err);
+                    
+                    //exit(1);
                 }
             } while ((NULL == fp1) &&(cnt<3));
-            if (fp1) {
+            if (fp1 == NULL) {
                 //printf("openfile: %s\n", filename);
+                memset(filename,0,sizeof(filename));
             }
         }
         else {
-            if (make_filename(filename,sizeof(filename),0) == 0) {
+            if (make_filename(filename,sizeof(filename),1) == 0) {
                 cnt = 0;
                 do{
                     fp1 = fopen(filename, "a+");
                     
                     if (NULL == fp1)
                     {
+                        char *err[64];
                         cnt++;
-                        printf("\n  fopen fail,try cnt = %d\n",cnt);
-                        exit(1);
+                        sprintf(err,"2 fopen fail,try cnt = %d",cnt);
+                        perror(err);
+                        //exit(1);
                     }
                 } while ((NULL == fp1) &&(cnt<3));
-                if (fp1) {
-                    printf("openfile1: %s\n", filename);
+                if (fp1 == NULL) {
+                    //printf("openfile: %s\n", filename);
+                    memset(filename,0,sizeof(filename));
                 }
             }
         }
@@ -208,6 +215,9 @@ static void write_file(char *str, unsigned int len)
         int ret;
         //ret = fwrite(str,len, 1, fp1);
         ret = fprintf(fp1,"%s",str);
+        if (ret < 0) {
+            perror("fprintf err.");
+        }
         //printf("wrlen:%d, len:%u, strlen:%lu, %s\n",ret,len,strlen(str),str);
         //printf("====================\n");
         wr_cnt++;
@@ -544,7 +554,8 @@ static int parse_filename(const char *filename, time_t *t)
         if ((mon>0 && mon<13) && (day>0 && day<32)) {
             tm.tm_year = year - 1900;
             tm.tm_mon = mon - 1;
-            t = mktime(&tm);
+            tm.tm_mday = day;
+            *t = mktime(&tm);
             return 0;
         }
     }
@@ -590,8 +601,8 @@ static int delete_earliest_dir(char *path)
                         sprintf(del_filename, dp->d_name);
                     }
                 }
-i++;           
- }
+                i++;
+            }
 
             
         }
@@ -599,9 +610,10 @@ i++;
         if (i > 1 && strlen(del_filename)>0){
             char rm_dir[512]={0};
             sprintf(rm_dir, "rm -r %s/%s", path, del_filename);
+            pthread_mutex_lock(&mutex_lock1);
             system(rm_dir);
             printf("%s\n",rm_dir);
-            
+            pthread_mutex_unlock(&mutex_lock1);
         }
         
         usleep(100 * 1000);
