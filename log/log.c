@@ -10,12 +10,13 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <sys/vfs.h>
 
 #define LOG_path "./log_dir"
 static FILE *fp1 = NULL;
 static pthread_mutex_t mutex_lock1 = PTHREAD_MUTEX_INITIALIZER;
 static int time_set_ok = 1;
-#define MAX_LOG_FILE_SIZE 10240
+#define MAX_LOG_FILE_SIZE (102400/2)
 static int flag1;
 static int num = 1;
 
@@ -173,6 +174,7 @@ static void write_file(char *str, unsigned int len)
                 {
                     cnt++;
                     printf("\n  fopen fail,try cnt = %d\n",cnt);
+                    exit(1);
                 }
             } while ((NULL == fp1) &&(cnt<3));
             if (fp1) {
@@ -189,6 +191,7 @@ static void write_file(char *str, unsigned int len)
                     {
                         cnt++;
                         printf("\n  fopen fail,try cnt = %d\n",cnt);
+                        exit(1);
                     }
                 } while ((NULL == fp1) &&(cnt<3));
                 if (fp1) {
@@ -469,7 +472,7 @@ static void *log_save_proc(void *param)
 static void msg_q_create(void)
 {
     struct msqid_ds tmpbuf;
-    key1 = ftok("112358", 'b');
+    key1 = ftok("./", 'b');
     msgid = msgget(key1, 0);
     
     if (msgid == -1)
@@ -524,11 +527,143 @@ void send_log_msg(msg_type_t mtype, char *dat, unsigned int datlen)
     
 }
 
+/*
+  ret: 0 ok, <0 err
+*/
+static int parse_filename(const char *filename, time_t *t)
+{
+    int ret,year,mon,day;
+    struct tm tm;
+    memset(&tm,0,sizeof(struct tm));
+    if (filename)
+        ret = sscanf(filename,"%d-%d-%d",&year,&mon,&day);
+
+    printf("ret=%d,y=%d,m=%d,d=%d\n",ret,year,mon,day);
+    
+    if (ret == 3) {
+        if ((mon>0 && mon<13) && (day>0 && day<32)) {
+            tm.tm_year = year - 1900;
+            tm.tm_mon = mon - 1;
+            t = mktime(&tm);
+            return 0;
+        }
+    }
+    return -1;
+}
+static int delete_earliest_dir(char *path)
+{
+    DIR *dirptr = NULL;
+    struct dirent *dp;
+    DIR *dirp;
+    int dir_num;
+    
+    dir_num = 20991231;
+    
+    if (path == NULL)
+        return -1;
+    
+    if ((dirptr = opendir(path)) == NULL)
+    {
+        printf("open dir Error.\n");
+        return -1;
+    }
+    else
+    {
+        char del_filename[100]={0};
+        time_t t, t_earliest;
+        int i=0;
+        while ((dp = readdir(dirptr)) != NULL)
+        {
+            int r;
+            if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0)
+                continue;
+            r = parse_filename(dp->d_name, &t);
+            
+            if(r == 0) {
+                if (i==0) {
+                    t_earliest = t;
+                    sprintf(del_filename, dp->d_name);
+                }
+                else {
+                    if (t<t_earliest) {
+                        t_earliest = t;
+                        sprintf(del_filename, dp->d_name);
+                    }
+                }
+i++;           
+ }
+
+            
+        }
+        
+        if (i > 1 && strlen(del_filename)>0){
+            char rm_dir[512]={0};
+            sprintf(rm_dir, "rm -r %s/%s", path, del_filename);
+            system(rm_dir);
+            printf("%s\n",rm_dir);
+            
+        }
+        
+        usleep(100 * 1000);
+        closedir(dirptr);
+    }
+    
+    return 0;
+}
+
+static int get_space_info(char *path)
+{
+    struct statfs diskInfo;
+    int space_free_percent = 100;
+    unsigned long long  blocksize = 0;  //每个block里包含的字节数
+    unsigned long long  totalsize = 0;  //总的字节数，f_blocks为block的数目
+    unsigned long long  freeDisk = 0; //剩余空间的大小
+    unsigned long long  availableDisk = 0;  //可用空间大小
+    if (path==NULL) return space_free_percent;
+    statfs(path, &diskInfo);
+    blocksize = diskInfo.f_bsize;   //每个block里包含的字节数
+    totalsize = diskInfo.f_blocks * blocksize;  //总的字节数，f_blocks为block的数目
+    freeDisk = diskInfo.f_bfree * blocksize; //剩余空间的大小
+    availableDisk = diskInfo.f_bavail * blocksize;  //可用空间大小
+    //printf("%llu,%llu,%llu,%llu\n",blocksize,totalsize,freeDisk,availableDisk);
+    //totalsize *= blocksize;   //总的字节数，f_blocks为block的数目
+    //freeDisk *= blocksize; //剩余空间的大小
+    //availableDisk *= blocksize;   //可用空间大小
+    space_free_percent  = (int)((double)availableDisk * 100 / totalsize);
+    {
+        printf("%-16s: = %llu B = %llu KB = %llu MB = %llu GB\n",
+               "Total_size", totalsize, totalsize >> 10, totalsize >> 20, totalsize >> 30);
+        printf("%-16s: = %llu B = %llu KB = %llu MB = %llu GB	%d\%\n",
+               "Disk_free", freeDisk, freeDisk >> 10, freeDisk >> 20, freeDisk >> 30, (int)((double)freeDisk * 100 / totalsize));
+        printf("%-16s: = %llu B = %llu KB = %llu MB = %llu GB	%d\%\n",
+               "Disk_available", availableDisk, availableDisk >> 10, availableDisk >> 20, availableDisk >> 30, (int)((double)availableDisk * 100 / totalsize));
+    }
+
+    return space_free_percent;
+}
+
+static void *delete_log_proc(void *param)
+{
+    while (1)
+    {
+        int percent;
+        percent= get_space_info(LOG_path);
+
+		
+        if (percent < 47)
+        {
+            delete_earliest_dir(LOG_path);
+        }
+        sleep(3);
+    }
+    
+}
+
 static void *test_proc(void *p)
 {
     int f = 1;
     while (1) {
-        usleep(10000);
+        usleep(1000);
         if (f) {
             f= 0;
             send_log_msg(MTYPE_restart,"+++restart+++\n",strlen("+++restart+++\n"));
@@ -536,8 +671,8 @@ static void *test_proc(void *p)
         {
             static int cnt= 0;
 
-            char str[100];
-            sprintf(str,"cnt=%05d\n",cnt++);
+            char str[512];
+            sprintf(str,"cnt=%05d-------------------------------------------------------------------------------------------------\n",cnt++);
 
             send_log_msg(MTYPE_restart,str,strlen(str));
             
@@ -547,11 +682,12 @@ static void *test_proc(void *p)
 
 static void thread_init(void)
 {
-    pthread_t tid,tid1;
+    pthread_t tid,tid1,tid2;
     //pthread_create(&tid1,NULL,make_file_thread,NULL);
     pthread_create(&tid1,NULL,test_proc,NULL);
     
     pthread_create(&tid,NULL,log_save_proc,NULL);
+    pthread_create(&tid2,NULL,delete_log_proc,NULL);
 }
 void log_init(void)
 {

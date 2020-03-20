@@ -68,12 +68,21 @@ void *th2(void *p)
     }
 }
 
+//int parse_filename(const char *filename, time_t *t);
 int main(int argc, char **argv)
 {
     int a,b,c;
     pthread_t tid1,tid2;
     //pthread_create(&tid1, NULL, th1,NULL);
     //pthread_create(&tid2, NULL, th2,NULL);
+    /* { */
+/*         int r; */
+/*         time_t t; */
+/*     r = parse_filename(argv[1],&t); */
+/*     printf("r:%d\n",r); */
+/* return 1; */
+
+/*     } */
 
     log_init();
 
