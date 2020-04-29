@@ -10,8 +10,8 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/libs)
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 link_directories(${PROJECT_BINARY_DIR}/libs)
 
-
-
+#arm-linux-gnueabihf-gcc
+#SET(CMAKE_C_COMPILER "arm-linux-gnueabihf-gcc")
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -Wall -O2")
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -O2")
 
@@ -68,10 +68,12 @@ ENDFOREACH(SRC_PATH)
 aux_source_directory(. DIR_SRCS)
 add_subdirectory(math)
 add_subdirectory(log)
+add_subdirectory(io)
 #add_subdirectory(log)
 
 link_libraries(math log)
 link_libraries(pthread)
+link_libraries(io)
 
 # 指定生成目标
 add_executable(test ${DIR_SRCS})

@@ -9,6 +9,8 @@
 
 
 
+
+
 void *th1(void *p)
 {
     time_t t;
@@ -73,6 +75,7 @@ int main(int argc, char **argv)
 {
     int a,b,c;
     pthread_t tid1,tid2;
+    printf("%s,%s,%d\n",__FILE__,__FUNCTION__,__LINE__);
     //pthread_create(&tid1, NULL, th1,NULL);
     //pthread_create(&tid2, NULL, th2,NULL);
     /* { */
